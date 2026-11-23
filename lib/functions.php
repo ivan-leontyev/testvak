@@ -60,7 +60,8 @@ function page_header($title)
 {
     $menu = array(
         'index.php' => 'Рейсы',
-        'invoices.php' => 'Счета',
+        'billing.php' => 'Счета за месяц',
+        'invoices.php' => 'Счета (стар.)',
         'load_report.php' => 'Загрузка машин',
     );
     $current = basename($_SERVER['SCRIPT_NAME']);

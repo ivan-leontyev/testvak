@@ -208,3 +208,81 @@ function billing_preview_period($period)
         'total_after' => number_format($total_after_cents / 100, 2, '.', ''),
     );
 }
+
+function billing_apply_period($period)
+{
+    $raw = billing_preview_period($period);
+
+    $db = db();
+    $created = 0;
+    $updated = 0;
+
+    $db->beginTransaction();
+    foreach (get_clients() as $client) {
+        $client_id = (int)$client['id'];
+        $trips = $db->query("SELECT DISTINCT t.id FROM trips t
+            JOIN cargo c ON c.trip_id = t.id
+            WHERE c.client_id = $client_id
+              AND t.departure_date LIKE '{$period}%'
+              AND t.status <> 'cancelled'
+            ORDER BY t.departure_date")->fetchAll(PDO::FETCH_COLUMN);
+        if (!$trips) {
+            continue;
+        }
+
+        $computed = array();
+        $total_cents = 0;
+        foreach ($trips as $trip_id) {
+            $trip_id = (int)$trip_id;
+            $shares = calc_share_m3($trip_id);
+            if (!isset($shares[$client_id])) {
+                continue;
+            }
+            $cents = (int)round($shares[$client_id]['amount'] * 100);
+            $computed[$trip_id] = $cents;
+            $total_cents += $cents;
+        }
+        if (!$computed) {
+            continue;
+        }
+
+        $invoice = $db->query("SELECT * FROM invoices WHERE client_id = $client_id AND period = '{$period}'")->fetch();
+        if ($invoice) {
+            $existing = array();
+            $rows = $db->query("SELECT trip_id, amount FROM invoice_lines WHERE invoice_id = {$invoice['id']} ORDER BY trip_id")->fetchAll();
+            foreach ($rows as $row) {
+                $existing[(int)$row['trip_id']] = (int)round((float)$row['amount'] * 100);
+            }
+            $same = count($existing) === count($computed) && (int)round((float)$invoice['total'] * 100) === $total_cents;
+            foreach ($computed as $trip_id => $cents) {
+                if (!isset($existing[$trip_id]) || $existing[$trip_id] !== $cents) {
+                    $same = false;
+                    break;
+                }
+            }
+            if ($same) {
+                continue;
+            }
+        }
+
+        if ($invoice) {
+            $invoice_id = (int)$invoice['id'];
+            $db->exec("DELETE FROM invoice_lines WHERE invoice_id = $invoice_id");
+            $updated++;
+        } else {
+            $db->exec("INSERT INTO invoices (client_id, period, status, total, created_at)
+                VALUES ($client_id, '{$period}', 'draft', 0, datetime('now', 'localtime'))");
+            $invoice_id = (int)$db->lastInsertId();
+            $created++;
+        }
+
+        foreach ($computed as $trip_id => $cents) {
+            $amount = $cents / 100;
+            $db->exec("INSERT INTO invoice_lines (invoice_id, trip_id, amount) VALUES ($invoice_id, $trip_id, $amount)");
+        }
+        $db->exec("UPDATE invoices SET total = " . ($total_cents / 100) . " WHERE id = $invoice_id");
+    }
+    $db->commit();
+
+    return array('created' => $created, 'updated' => $updated, 'raw' => $raw);
+}

@@ -20,9 +20,9 @@ foreach ($invoices as $invoice) {
     $total += $invoice['total'];
 }
 
-page_header('Счета');
+page_header('Счета клиентов (старый вариант)');
 ?>
-<h1>Счета клиентов</h1>
+<h1>Счета клиентов (старый вариант)</h1>
 
 <?php if (!empty($_GET['msg'])): ?>
     <div class="msg"><?= h($_GET['msg']) ?></div>
