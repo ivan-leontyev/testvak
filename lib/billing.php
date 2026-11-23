@@ -152,3 +152,59 @@ function billing_run_period($period)
 
     return array('created' => $created, 'updated' => $updated);
 }
+
+function billing_preview_period($period)
+{
+    $db = db();
+    $clients = get_clients();
+    usort($clients, function ($a, $b) {
+        return $a['id'] <=> $b['id'];
+    });
+
+    $preview = array();
+    $total_before_cents = 0;
+    $total_after_cents = 0;
+
+    foreach ($clients as $client) {
+        $client_id = (int)$client['id'];
+        $trips = $db->query("SELECT DISTINCT t.id FROM trips t
+            JOIN cargo c ON c.trip_id = t.id
+            WHERE c.client_id = $client_id
+              AND t.departure_date LIKE '{$period}%'
+              AND t.status <> 'cancelled'
+            ORDER BY t.departure_date")->fetchAll(PDO::FETCH_COLUMN);
+        if (!$trips) {
+            continue;
+        }
+
+        $invoice = $db->query("SELECT id, total FROM invoices WHERE client_id = $client_id AND period = '{$period}'")->fetch();
+        $invoice_id = $invoice ? (int)$invoice['id'] : null;
+        $before_cents = $invoice ? (int)round((float)$invoice['total'] * 100) : 0;
+
+        $after_cents = 0;
+        foreach ($trips as $trip_id) {
+            $shares = calc_share_m3($trip_id);
+            if (isset($shares[$client_id])) {
+                $after_cents += (int)round($shares[$client_id]['amount'] * 100);
+            }
+        }
+
+        $preview[] = array(
+            'client_id' => $client_id,
+            'name' => $client['name'],
+            'invoice_id' => $invoice_id,
+            'before' => number_format($before_cents / 100, 2, '.', ''),
+            'after' => number_format($after_cents / 100, 2, '.', ''),
+            'diff' => number_format(($after_cents - $before_cents) / 100, 2, '.', ''),
+        );
+        $total_before_cents += $before_cents;
+        $total_after_cents += $after_cents;
+    }
+
+    return array(
+        'period' => $period,
+        'clients' => $preview,
+        'total_before' => number_format($total_before_cents / 100, 2, '.', ''),
+        'total_after' => number_format($total_after_cents / 100, 2, '.', ''),
+    );
+}
