@@ -59,7 +59,24 @@ page_header('Рейс ' . $trip['number']);
     </tbody>
 </table>
 
-<h2>Доли клиентов</h2>
+<h2>Распределение стоимости</h2>
+<table class="grid" id="trip-split" data-trip-id="<?= $id ?>">
+    <thead>
+    <tr>
+        <th>Клиент</th>
+        <th class="r">Число грузов</th>
+        <th class="r">Вес, кг</th>
+        <th class="r">Объём, м³</th>
+        <th class="r">Доля, %</th>
+        <th class="r">Сумма, ₽</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script src="js/trip_split.js"></script>
+
+<h2>Доли клиентов (старый вариант: расчёт по весу)</h2>
 <table class="grid">
     <thead>
     <tr>
