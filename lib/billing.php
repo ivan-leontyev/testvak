@@ -35,6 +35,74 @@ function calc_share($trip_id)
     return $result;
 }
 
+function calc_share_m3($trip_id)
+{
+    $trip_id = (int)$trip_id;
+    $trip = db()->query("SELECT cost FROM trips WHERE id = $trip_id")->fetch();
+    if (!$trip) {
+        return array();
+    }
+
+    $rows = db()->query("SELECT c.client_id, cl.name, SUM(COALESCE(c.volume_m3, 0)) AS volume_m3
+        FROM cargo c
+        JOIN clients cl ON cl.id = c.client_id
+        WHERE c.trip_id = $trip_id
+        GROUP BY c.client_id, cl.name
+        ORDER BY c.client_id")->fetchAll();
+    if (!$rows) {
+        return array();
+    }
+
+    foreach ($rows as $i => $row) {
+        $rows[$i]['volume_m3'] = max(0, (float)$row['volume_m3']);
+    }
+
+    $total_volume = 0;
+    foreach ($rows as $row) {
+        $total_volume += $row['volume_m3'];
+    }
+
+    $cost_cents = (int)round((float)$trip['cost'] * 100);
+    $cents = array();
+    $fractions = array();
+    $allocated = 0;
+    foreach ($rows as $i => $row) {
+        $share = $total_volume > 0 ? $row['volume_m3'] / $total_volume : 1 / count($rows);
+        $raw = $total_volume > 0 ? $cost_cents * $share : $cost_cents / count($rows);
+        $cents[$i] = (int)floor($raw);
+        $fractions[$i] = $raw - $cents[$i];
+        $allocated += $cents[$i];
+    }
+
+    $order = array_keys($rows);
+    usort($order, function ($a, $b) use ($fractions, $rows) {
+        if ($fractions[$a] > $fractions[$b]) {
+            return -1;
+        }
+        if ($fractions[$a] < $fractions[$b]) {
+            return 1;
+        }
+        return $rows[$a]['client_id'] <=> $rows[$b]['client_id'];
+    });
+
+    $remainder = $cost_cents - $allocated;
+    for ($i = 0; $i < $remainder && $i < count($order); $i++) {
+        $cents[$order[$i]]++;
+    }
+
+    $result = array();
+    foreach ($rows as $i => $row) {
+        $result[$row['client_id']] = array(
+            'name' => $row['name'],
+            'volume_m3' => $row['volume_m3'],
+            'share' => $total_volume > 0 ? $row['volume_m3'] / $total_volume : 1 / count($rows),
+            'amount' => round($cents[$i] / 100, 2),
+        );
+    }
+
+    return $result;
+}
+
 /**
  * Сформировать счета клиентов за месяц.
  *
